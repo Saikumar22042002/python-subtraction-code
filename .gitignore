@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Virtualenv
+venv/
+env/
+
+# Test & Coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Environment
+.env
+.env.*
+
+# IDEs & Editors
+.vscode/
+.idea/
+*.swp
+
+# Logs
+*.log

@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: python-subtraction-service
+  labels:
+    app: python-subtraction-app
+    environment: dev
+spec:
+  type: LoadBalancer
+  selector:
+    app: python-subtraction-app
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 5000
