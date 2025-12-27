@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: python-subtraction-app
+  labels:
+    app: python-subtraction-app
+    environment: dev
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: python-subtraction-app
+  template:
+    metadata:
+      labels:
+        app: python-subtraction-app
+    spec:
+      containers:
+        - name: python-subtraction-code
+          image: ECR_REGISTRY/python-subtraction-code:IMAGE_TAG
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 5000
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 10

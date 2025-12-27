@@ -1,0 +1,108 @@
+name: Dev Environment CI/CD
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  ECR_REPOSITORY: python-subtraction-code
+  IMAGE_TAG: ${{ github.sha }}
+  # Store AWS_REGION and EKS_CLUSTER_NAME in GitHub secrets for security
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build-and-test:
+    name: Build and Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Lint with Pylint
+        run: |
+          pylint --fail-under=9.5 app.py tests/test_app.py
+
+      - name: Run Tests with Pytest
+        run: |
+          pytest
+
+  build-and-push-to-ecr:
+    name: Build and Push to ECR
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubAction-ECR-EKS-Access # Replace with your OIDC Role ARN
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Create ECR repository if it does not exist
+        run: |
+          aws ecr describe-repositories --repository-names ${{ env.ECR_REPOSITORY }} > /dev/null 2>&1 || \
+          aws ecr create-repository --repository-name ${{ env.ECR_REPOSITORY }}
+
+      - name: Build, Tag, and Push Docker Image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+  deploy-to-eks:
+    name: Deploy to EKS
+    needs: build-and-push-to-ecr
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubAction-ECR-EKS-Access # Replace with your OIDC Role ARN
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Set up Kubeconfig for EKS
+        run: |
+          aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ secrets.AWS_REGION }}
+
+      - name: Deploy to Kubernetes
+        env:
+          ECR_REGISTRY: ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+        run: |
+          # Substitute the ECR registry and image tag in the deployment manifest
+          sed -i "s|ECR_REGISTRY|${ECR_REGISTRY}|g" deployment.yaml
+          sed -i "s|IMAGE_TAG|${IMAGE_TAG}|g" deployment.yaml
+
+          echo "--- Applying service.yaml ---"
+          cat service.yaml
+          kubectl apply -f service.yaml
+
+          echo "\n--- Applying deployment.yaml ---"
+          cat deployment.yaml
+          kubectl apply -f deployment.yaml
+
+          echo "\n--- Verifying deployment rollout ---"
+          kubectl rollout status deployment/python-subtraction-app --timeout=60s
